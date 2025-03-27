@@ -1,96 +1,145 @@
-const fs = require('fs');
-const path = require('path');
+const Tour = require('../models/tourModel');
+const APIFeatures = require('../utils/apiFeatures');
 
-let tours = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '../dev-data/data/tours-simple.json'))
-);
-
-const searchTour = id => tours.find(t => t.id === id * 1);
-
-const checkBody = (req, res, next) => {
-  if (!req.body.name || !req.body.price)
-    return res
-      .status(400)
-      .json({ status: 'fail', message: 'Missing name or price' });
+const aliasTopTours = (req, res, next) => {
+  req.query.sort = '-ratingsAverage';
+  req.query.limit = '5';
+  req.query.fields = 'name,price,ratingsAverage,summary,difficulty';
   next();
 };
 
 // Route Handlers
-const getAllTours = (req, res) => {
-  res
-    .status(200)
-    .json({ status: 'success', result: tours.length, data: { tours } });
+const getAllTours = async (req, res) => {
+  try {
+    // Building query
+    const features = new APIFeatures(Tour.find(), req.query); // initial qury = Tour.find()
+    features
+      .filter()
+      .sort()
+      .limitFields()
+      .paginate();
+    // Executing query
+    const tours = await features.query;
+    res
+      .status(200)
+      .json({ status: 'success', result: tours.length, data: { tours } });
+  } catch (err) {
+    res.status(404).json({ status: 'fail', message: err });
+  }
 };
 
-const getTour = (req, res) => {
-  const foundTour = searchTour(req.params.id * 1); // *1 to make it an integer
-  if (!foundTour)
-    return res.status(404).json({ status: 'fail', message: 'Invalid ID' });
-  res.status(200).json({ status: 'success', data: { tour: foundTour } });
+const getTour = async (req, res) => {
+  try {
+    const foundTour = await Tour.findById(req.params.id); // alt: Tour.findOne({_id:req.params.id})
+    res.status(200).json({ status: 'success', data: { tour: foundTour } });
+  } catch (err) {
+    res.status(404).json({ status: 'fail', message: err });
+  }
 };
 
-const createTour = (req, res) => {
-  const newId = tours.length > 0 ? tours[tours.length - 1].id + 1 : 1;
-  const newTour = { id: newId, ...req.body };
+const createTour = async (req, res) => {
+  try {
+    const newTour = await Tour.create(req.body);
+    res.status(201).json({ status: 'success', data: { tour: newTour } });
+  } catch (err) {
+    res.status(400).json({ status: 'fail', message: err });
+  }
+};
 
-  tours.push(newTour);
+const updateTour = async (req, res) => {
+  try {
+    const updatedTour = await Tour.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    });
+    res.status(200).json({ status: 'success', data: { tour: updatedTour } });
+  } catch (err) {
+    res.status(400).json({ status: 'fail', message: err });
+  }
+};
 
-  fs.writeFile(
-    path.join(__dirname, '../dev-data/data/tours-simple.json'),
-    JSON.stringify(tours),
-    err => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: 'error', message: 'Failed to save data' });
+const deleteTour = async (req, res) => {
+  try {
+    await Tour.findByIdAndDelete(req.params.id);
+    res.status(204).json({ status: 'success', data: null });
+  } catch (err) {
+    res.status(404).json({ status: 'fail', message: err });
+  }
+};
+
+const getTourStat = async (req, res) => {
+  try {
+    const stats = await Tour.aggregate([
+      {
+        $match: { ratingsAverage: { $gte: 4.5 } }
+      },
+      {
+        $group: {
+          _id: { $toUpper: '$difficulty' },
+          numTours: { $sum: 1 },
+          numRatings: { $sum: '$ratingsQuantity' },
+          avgRating: { $avg: '$ratingsAverage' },
+          avgPrice: { $avg: '$price' },
+          minPrice: { $min: '$price' },
+          maxPrice: { $max: '$price' }
+        }
+      },
+      {
+        $sort: { avgPrice: 1 }
       }
-      res.status(201).json({ status: 'success', data: { newTour } });
-    }
-  );
+      // {
+      //   $match: { _id: { $ne: 'EASY' } }
+      // }
+    ]);
+    res.status(200).json({ status: 'success', data: { stats } });
+  } catch (err) {
+    res.status(404).json({ status: 'fail', message: err });
+  }
 };
 
-const updateTour = (req, res) => {
-  const foundTour = searchTour(req.params.id * 1);
-  if (!foundTour)
-    return res.status(404).json({ status: 'fail', message: 'Invalid ID' });
+const getMonthlyPlan = async (req, res) => {
+  try {
+    const year = req.params.year * 1; // 2021
 
-  const updatedTour = { ...foundTour, ...req.body };
-  const id = req.params.id * 1;
-  tours = tours.map(t => (t.id === id ? updatedTour : t));
-
-  fs.writeFile(
-    path.join(__dirname, '../dev-data/data/tours-simple.json'),
-    JSON.stringify(tours),
-    err => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: 'error', message: 'Failed to update data' });
+    const plan = await Tour.aggregate([
+      {
+        $unwind: '$startDates'
+      },
+      {
+        $match: {
+          startDates: {
+            $gte: new Date(`${year}-01-01`),
+            $lte: new Date(`${year}-12-31`)
+          }
+        }
+      },
+      {
+        $group: {
+          _id: { $month: '$startDates' },
+          numTourStarts: { $sum: 1 },
+          tours: { $push: '$name' }
+        }
+      },
+      {
+        $addFields: { month: '$_id' }
+      },
+      {
+        $project: {
+          _id: 0
+        }
+      },
+      {
+        $sort: { numTourStarts: -1 }
+      },
+      {
+        $limit: 12
       }
-      res.status(200).json({ status: 'success', data: { updatedTour } });
-    }
-  );
-};
+    ]);
 
-const deleteTour = (req, res) => {
-  const foundTour = searchTour(req.params.id * 1);
-  if (!foundTour)
-    return res.status(404).json({ status: 'fail', message: 'Invalid ID' });
-  const id = req.params.id * 1;
-  tours = tours.filter(t => t.id !== id);
-
-  fs.writeFile(
-    path.join(__dirname, '../dev-data/data/tours-simple.json'),
-    JSON.stringify(tours),
-    err => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: 'error', message: 'Failed to delete data' });
-      }
-      res.status(204).json({ status: 'success', data: null });
-    }
-  );
+    res.status(200).json({ status: 'success', data: { plan } });
+  } catch (err) {
+    res.status(404).json({ status: 'fail', message: err });
+  }
 };
 
 module.exports = {
@@ -99,5 +148,7 @@ module.exports = {
   createTour,
   updateTour,
   deleteTour,
-  checkBody,
+  aliasTopTours,
+  getTourStat,
+  getMonthlyPlan
 };
