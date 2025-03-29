@@ -1,5 +1,10 @@
 const express = require('express');
 const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const hpp = require('hpp');
+const sanitizeInput = require('./utils/sanitize');
 const tourRouter = require('./routes/tourRoutes');
 const userRouter = require('./routes/userRoutes');
 const AppError = require('./utils/appError');
@@ -7,28 +12,103 @@ const globalErrorHandler = require('./controllers/errorController');
 
 const app = express();
 
-// Middleware to access the request body
-app.use(express.json());
+/*  
+  ───────────────────────────────────────
+  SECURITY MIDDLEWARES
+  ───────────────────────────────────────
+*/
 
-// logger middleware
-if (process.env.NODE_ENV === 'development') app.use(morgan('dev'));
+// Set security-related HTTP headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"]
+      }
+    }
+  })
+);
 
-// ROUTES
-// * aap.use() is used to mound middlewares
+// Rate limiting to prevent brute-force attacks
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 100, // Limit each IP to 100 requests per window
+  standardHeaders: true, // Show rate limit info in headers
+  legacyHeaders: false, // Disable old X-RateLimit-* headers
+  message: { error: 'Too many requests, please try again in 15 minutes.' }
+});
+app.use('/api', limiter);
+
+/*  
+  ───────────────────────────────────────
+  BODY PARSING & SANITIZATION MIDDLEWARES
+  ───────────────────────────────────────
+*/
+
+// Middleware to parse incoming JSON requests
+app.use(express.json({ limit: '10kb' })); // Prevents large payload attacks
+
+// Prevents NoSQL injection attacks by sanitizing user input
+app.use(mongoSanitize());
+
+// Prevents XSS (Cross-site Scripting) attacks by sanitizing request input
+app.use(sanitizeInput);
+
+// Prevents HTTP Parameter Pollution (HPP)
+app.use(
+  hpp({
+    whitelist: [
+      'duration',
+      'ratingsQuantity',
+      'ratingsAverage',
+      'maxGroupSize',
+      'difficulty',
+      'price'
+    ]
+  })
+);
+
+/*  
+  ───────────────────────────────────────
+  DEVELOPMENT LOGGING MIDDLEWARE
+  ───────────────────────────────────────
+*/
+
+// Logs HTTP requests to the console in development mode
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
+
+/*  
+  ───────────────────────────────────────
+  ROUTES
+  ───────────────────────────────────────
+*/
+
+// Mounting tour-related routes
 app.use('/api/v1/tours', tourRouter);
+
+// Mounting user-related routes
 app.use('/api/v1/users', userRouter);
 
-// uncaught routes
-app.all('*', (req, res, next) => {
-  // const err = new Error(`Can't find ${req.originalUrl}  on this server`);
-  // err.status = 'fail';
-  // err.statusCode = 404;
-  // next(err); // if an arg in next call of ANY middleware, skip all the middleware and red the error as response
+/*  
+  ───────────────────────────────────────
+  HANDLING UNHANDLED ROUTES
+  ───────────────────────────────────────
+*/
 
-  next(new AppError(`Can't find ${req.originalUrl}  on this server`, 404)); //* if an arg in next call of ANY middleware, skip all the middleware and red the error as response
+app.all('*', (req, res, next) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));
 });
 
-// error handler middleware (4 args)
+/*  
+  ───────────────────────────────────────
+  GLOBAL ERROR HANDLING MIDDLEWARE
+  ───────────────────────────────────────
+*/
+
 app.use(globalErrorHandler);
 
 module.exports = app;
