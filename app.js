@@ -1,17 +1,25 @@
+const path = require('path');
 const express = require('express');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
+const cookieParser = require('cookie-parser');
 const sanitizeInput = require('./utils/sanitize');
 const tourRouter = require('./routes/tourRoutes');
 const userRouter = require('./routes/userRoutes');
 const reviewRouter = require('./routes/reviewRoutes');
 const AppError = require('./utils/appError');
 const globalErrorHandler = require('./controllers/errorController');
+const viewRouter = require('./routes/viewRoutes');
 
 const app = express();
+app.use(cookieParser());
+
+app.set('view engine', 'pug');
+app.set('views', path.join(__dirname, './views'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 /*  
   ───────────────────────────────────────
@@ -25,8 +33,25 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'"]
+        scriptSrc: [
+          "'self'",
+          'https://api.mapbox.com',
+          'https://events.mapbox.com',
+          'blob:'
+        ],
+        workerSrc: ["'self'", 'blob:'],
+        styleSrc: [
+          "'self'",
+          'https://fonts.googleapis.com',
+          'https://api.mapbox.com'
+        ],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'https://api.mapbox.com'],
+        connectSrc: [
+          "'self'",
+          'https://api.mapbox.com',
+          'https://events.mapbox.com'
+        ]
       }
     }
   })
@@ -50,6 +75,7 @@ app.use('/api', limiter);
 
 // Middleware to parse incoming JSON requests
 app.use(express.json({ limit: '10kb' })); // Prevents large payload attacks
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // Prevents NoSQL injection attacks by sanitizing user input
 app.use(mongoSanitize());
@@ -87,6 +113,8 @@ if (process.env.NODE_ENV === 'development') {
   ROUTES
   ───────────────────────────────────────
 */
+
+app.use('/', viewRouter);
 
 // Mounting tour-related routes
 app.use('/api/v1/tours', tourRouter);
