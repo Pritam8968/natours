@@ -1,7 +1,48 @@
+const multer = require('multer');
+const sharp = require('sharp');
 const User = require('../models/userModel');
 const AppError = require('../utils/appError');
 const catchAsync = require('../utils/catchAsync');
 const factory = require('./handlerFactory');
+
+//save in disk
+// const multerStorage = multer.diskStorage({
+//   destination: function(req, file, cb) {
+//     cb(null, 'public/img/users');
+//   },
+//   filename: function(req, file, cb) {
+//     const extension = file.mimetype.split('/')[1];
+//     cb(null, `user-${req.user.id}-${Date.now()}.${extension}`);
+//   }
+// });
+
+//save in memory buffer
+const multerStorage = multer.memoryStorage();
+
+const multerFilter = (req, file, cb) => {
+  // The function should call `cb` with a boolean
+  // to indicate if the file should be accepted
+
+  // accept
+  if (file.mimetype.startsWith('image')) cb(null, true);
+  //reject
+  else cb(new AppError('Not an image! Please upload only images.', 400), false);
+};
+const upload = multer({ storage: multerStorage, fileFilter: multerFilter });
+
+const uploadUserPhoto = upload.single('photo');
+
+const resizeUserPhoto = catchAsync(async (req, res, next) => {
+  if (!req.file) return next();
+
+  req.file.filename = `user-${req.user.id}-${Date.now()}.jpg`;
+  await sharp(req.file.buffer)
+    .resize(500, 500)
+    .toFormat('jpg')
+    .jpeg({ quality: 90 })
+    .toFile(`public/img/users/${req.file.filename}`);
+  next();
+});
 
 const filterObj = (obj, allowedFields) => {
   const result = {};
@@ -24,6 +65,7 @@ const updateMe = catchAsync(async (req, res, next) => {
   // 2) Filtered out unwanted fields
   const allowedFields = ['name', 'email'];
   const filteredBody = filterObj(req.body, allowedFields);
+  if (req.file) filteredBody.photo = req.file.filename;
   // as we are not dealing with sensitive info so can use findByIdAndUpdate
   const updatedUser = await User.findByIdAndUpdate(req.user.id, filteredBody, {
     new: true,
@@ -67,5 +109,7 @@ module.exports = {
   deleteUser,
   updateMe,
   deleteMe,
-  getMe
+  getMe,
+  uploadUserPhoto,
+  resizeUserPhoto
 };

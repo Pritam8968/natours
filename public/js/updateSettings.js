@@ -6,7 +6,6 @@ export const updateSetting = async (type, data) => {
   try {
     const route = type === 'password' ? 'update-my-password' : 'update-me';
 
-    console.log(route);
     const res = await axios({
       method: 'PATCH',
       url: `/api/v1/users/${route}`,

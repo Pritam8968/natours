@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
+const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const sanitizeInput = require('./utils/sanitize');
 const tourRouter = require('./routes/tourRoutes');
@@ -13,6 +14,7 @@ const reviewRouter = require('./routes/reviewRoutes');
 const AppError = require('./utils/appError');
 const globalErrorHandler = require('./controllers/errorController');
 const viewRouter = require('./routes/viewRoutes');
+const bookingRouter = require('./routes/bookingRoutes');
 
 const app = express();
 app.use(cookieParser());
@@ -37,21 +39,33 @@ app.use(
           "'self'",
           'https://api.mapbox.com',
           'https://events.mapbox.com',
+          'https://js.stripe.com',
           'blob:'
         ],
         workerSrc: ["'self'", 'blob:'],
         styleSrc: [
           "'self'",
           'https://fonts.googleapis.com',
-          'https://api.mapbox.com'
+          'https://api.mapbox.com',
+          "'unsafe-inline'" // sometimes needed for Stripe and Google Fonts
         ],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', 'https://api.mapbox.com'],
+        imgSrc: [
+          "'self'",
+          'data:',
+          'https://api.mapbox.com',
+          'https://q.stripe.com'
+        ],
         connectSrc: [
           "'self'",
           'https://api.mapbox.com',
-          'https://events.mapbox.com'
-        ]
+          'https://events.mapbox.com',
+          'https://api.stripe.com',
+          'https://js.stripe.com',
+          'https://q.stripe.com'
+        ],
+        frameSrc: ['https://js.stripe.com'], // needed for Stripe checkout or elements
+        objectSrc: ["'none'"] // for extra security
       }
     }
   })
@@ -97,6 +111,9 @@ app.use(
   })
 );
 
+// Response compression
+app.use(compression());
+
 /*  
   ───────────────────────────────────────
   DEVELOPMENT LOGGING MIDDLEWARE
@@ -124,6 +141,9 @@ app.use('/api/v1/users', userRouter);
 
 // Mounting review-related routes
 app.use('/api/v1/reviews', reviewRouter);
+
+// Mounting booking-related routes
+app.use('/api/v1/bookings', bookingRouter);
 
 /*  
   ───────────────────────────────────────
