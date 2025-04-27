@@ -5,7 +5,6 @@ const User = require('../models/userModel');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
 const Email = require('../utils/email');
-const { url } = require('inspector');
 
 /*  
   ───────────────────────────────────────
@@ -20,18 +19,14 @@ const generateToken = id =>
   });
 
 // Function to send JWT as a cookie and response
-const sendTokenResponse = (user, statusCode, res) => {
+const sendTokenResponse = (user, statusCode, req, res) => {
   const token = generateToken(user._id);
 
-  // Cookie options
-  const cookieOptions = {
+  res.cookie('jwt', token, {
     maxAge: process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000, // Convert days to milliseconds
-    httpOnly: true // Prevent access via JavaScript (security)
-  };
-
-  if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
-
-  res.cookie('jwt', token, cookieOptions);
+    httpOnly: true, // Prevent access via JavaScript (security)
+    secure: req.secure || req.headers['x-forwarded-proto'] === 'https' // Ensure secure cookies in HTTPS
+  });
 
   // Remove password from response object
   user.password = undefined;
@@ -57,7 +52,7 @@ const signup = catchAsync(async (req, res, next) => {
 
   const userProfileUrl = `${req.protocol}://${req.get('host')}/me`;
   await new Email(newUser, userProfileUrl).sendWelcome();
-  sendTokenResponse(newUser, 201, res);
+  sendTokenResponse(newUser, 201, req, res);
 });
 
 // User Login
@@ -74,7 +69,7 @@ const login = catchAsync(async (req, res, next) => {
     return next(new AppError('Incorrect email or password', 401));
 
   // 3) If credentials are correct, send token
-  sendTokenResponse(user, 200, res);
+  sendTokenResponse(user, 200, req, res);
 });
 
 /*  
@@ -241,7 +236,7 @@ const resetPassword = catchAsync(async (req, res, next) => {
   await user.save();
 
   // 3) Log the user in
-  sendTokenResponse(user, 200, res);
+  sendTokenResponse(user, 200, req, res);
 });
 
 // Update Password (while logged in)
@@ -259,7 +254,7 @@ const updatePassword = catchAsync(async (req, res, next) => {
   await user.save();
 
   // 4) Send new token
-  sendTokenResponse(user, 200, res);
+  sendTokenResponse(user, 200, req, res);
 });
 
 /*  

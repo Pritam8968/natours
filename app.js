@@ -7,6 +7,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const hpp = require('hpp');
 const compression = require('compression');
 const cookieParser = require('cookie-parser');
+const cors = require('cors');
 const sanitizeInput = require('./utils/sanitize');
 const tourRouter = require('./routes/tourRoutes');
 const userRouter = require('./routes/userRoutes');
@@ -17,6 +18,9 @@ const viewRouter = require('./routes/viewRoutes');
 const bookingRouter = require('./routes/bookingRoutes');
 
 const app = express();
+
+app.enable('trust proxy');
+
 app.use(cookieParser());
 
 app.set('view engine', 'pug');
@@ -28,6 +32,19 @@ app.use(express.static(path.join(__dirname, 'public')));
   SECURITY MIDDLEWARES
   ───────────────────────────────────────
 */
+
+// Added CORS
+app.use(cors());
+
+// Allow requests from specific origins, e.g., API hosted on api.natours.com and frontend on natours.com
+// app.use(
+//   cors({
+//     origin: 'https://natours.com'
+//   })
+// );
+
+// Enable pre-flight requests for complex CORS requests (e.g., PUT, DELETE, PATCH)
+app.options('*', cors());
 
 // Set security-related HTTP headers
 app.use(
