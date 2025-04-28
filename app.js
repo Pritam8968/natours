@@ -16,6 +16,7 @@ const AppError = require('./utils/appError');
 const globalErrorHandler = require('./controllers/errorController');
 const viewRouter = require('./routes/viewRoutes');
 const bookingRouter = require('./routes/bookingRoutes');
+const bookingController = require('./controllers/bookingController');
 
 const app = express();
 
@@ -98,6 +99,12 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+// The checkout session requires the body in raw form, so this middleware must be placed before the JSON body parser.
+app.post(
+  '/webhook-checkout',
+  express.raw({ type: 'application/json' }),
+  bookingController.webhookCheckout
+);
 /*  
   ───────────────────────────────────────
   BODY PARSING & SANITIZATION MIDDLEWARES
